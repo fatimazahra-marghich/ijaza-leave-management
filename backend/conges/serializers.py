@@ -171,16 +171,35 @@ class DemandeCongeSerializer(serializers.ModelSerializer):
                     "non_field_errors": f"Plafond annuel dépassé. Les autorisations exceptionnelles sont limitées à 10 j/an (Déjà consommés/demandés : {cumul} j)."
                 })
 
-        elif 'pelerinage' in libelle or 'hajj' in libelle or 'HAJJ' in code:
-            if getattr(user, 'a_fait_pelerinage', False):
+        elif 'pelerinage' in libelle or 'hajj' in libelle or 'HAJJ' in code or getattr(type_conge, 'id', None) == 2:
+            # 1. Vérification si le drapeau carrière est déjà activé
+            if getattr(user, 'pelerinage_utilise', False):
                 raise serializers.ValidationError({
                     "non_field_errors": "Vous avez déjà bénéficié du congé de pèlerinage au cours de votre carrière."
                 })
+
+            # 2. BLOQUAGE DES DOUBLONS : Vérification s'il existe déjà une demande VALIDÉE ou EN ATTENTE
+            demandes_hajj = DemandeConge.objects.filter(
+                utilisateur=user,
+                type_conge=type_conge
+            ).exclude(
+                statut__in=['REFUSEE_CHEF', 'REFUSEE_RH', 'REFUSEE', 'REFUSE', 'ANNULEE', 'ANNULE', 'CANCELED']
+            )
+
+            # Exclure la demande en cours de modification si c'est un 'update'
+            if self.instance:
+                demandes_hajj = demandes_hajj.exclude(pk=self.instance.pk)
+
+            if demandes_hajj.exists():
+                raise serializers.ValidationError({
+                    "non_field_errors": "Vous avez déjà une demande de pèlerinage en cours de traitement ou validée."
+                })
+
+            # 3. Limite de 60 jours
             if nb_jours > 60:
                 raise serializers.ValidationError({
                     "date_fin": "Le congé de pèlerinage ne peut pas dépasser 60 jours (2 mois)."
                 })
-
         elif 'paternite' in libelle or 'naissance' in libelle or 'PATERNITE' in code:
             if nb_jours > 15:
                 raise serializers.ValidationError({

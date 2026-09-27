@@ -68,12 +68,75 @@ export default function NewRequest() {
   const libelleTypeBrut = String(selectedTypeObj?.libelle || selectedTypeObj?.nom || "").toLowerCase();
   const libelleType = libelleTypeBrut.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 
-  // Détections spécifiques
+  // Détections spécifiques (Sécurisées avec ID 2 pour Pèlerinage)
   const estMaladie = (codeType.includes("MALADIE") || libelleType.includes("maladie")) && !libelleType.includes("exceptionnel");
-  const estPelerinage = codeType.includes("HAJJ") || codeType.includes("PELERINAGE") || libelleType.includes("pelerinage") || libelleType.includes("hajj");
+  const estPelerinage = 
+    String(selectedTypeObj?.id) === "2" ||
+    codeType.includes("HAJJ") || 
+    codeType.includes("PELERINAGE") || 
+    libelleType.includes("pelerinage") || 
+    libelleType.includes("hajj");
+  
   const estExceptionnel = codeType.includes("EXCEPT") || libelleType.includes("exceptionnel") || libelleType.includes("familial");
   const estPaternite = codeType.includes("PATERNITE") || libelleType.includes("paternite");
   const estMaternite = codeType.includes("MATERNITE") || libelleType.includes("maternite");
+
+  // Vérification stricte de l'historique Hajj (Validé ou En Attente)
+  const demandeHajjValideOuEnAttente = Array.isArray(demandesExistantes) && demandesExistantes.find((d) => {
+    // 1. Extraire l'ID du type, le code et le libellé
+    const typeId = String(
+      d.type_conge_details?.id || 
+      d.type_conge?.id || 
+      d.type_conge || 
+      ""
+    );
+
+    const codeD = String(
+      d.type_conge_details?.code || 
+      d.type_conge_code || 
+      ""
+    ).toUpperCase();
+
+    const libelleBrut = String(
+      d.type_conge_details?.libelle || 
+      d.type_conge_details?.nom || 
+      d.type_conge_nom || 
+      d.type_conge_libelle ||
+      d.type_conge_display || 
+      d.type_conge || 
+      ""
+    ).toLowerCase();
+
+    // Nettoyer les accents (ex: "pèlerinage" -> "pelerinage")
+    const libD = libelleBrut.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+    // 2. Détecter si c'est une demande de Pèlerinage (par ID: 2, Code ou Libellé)
+    const estHajj = 
+      typeId === "2" ||
+      codeD.includes("HAJJ") || 
+      codeD.includes("PELERINAGE") || 
+      libD.includes("pelerinage") || 
+      libD.includes("hajj");
+
+    if (!estHajj) return false;
+
+    // 3. Vérifier le statut : Ignorer seulement si Refusé ou Annulé
+    const statutClean = String(d.statut || "")
+      .toUpperCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+
+    const estInvalide = 
+      statutClean.includes("REFUS") || 
+      statutClean.includes("ANNUL") || 
+      statutClean.includes("REJECT") || 
+      statutClean.includes("CANCEL");
+
+    // Si elle n'est PAS refusée/annulée (donc "VALIDEE", "EN_ATTENTE_RH", "EN_ATTENTE_CHEF", etc.), on la bloque
+    return !estInvalide;
+  });
+
+  const pelerinageBloque = userStored?.pelerinage_utilise || Boolean(demandeHajjValideOuEnAttente);
 
   const obtenirDureeMaxAffichage = () => {
     if (estPelerinage) return "60 jour(s)";
@@ -182,6 +245,29 @@ export default function NewRequest() {
       return;
     }
 
+    // Contrôle spécifique pour le Pèlerinage
+    if (estPelerinage) {
+      if (userStored?.pelerinage_utilise) {
+        setErreur("Vous avez déjà bénéficié d'un congé de pèlerinage au cours de votre carrière.");
+        return;
+      }
+
+      if (demandeHajjValideOuEnAttente) {
+        const statutExist = String(demandeHajjValideOuEnAttente.statut || "").toUpperCase();
+        if (statutExist.includes("VALID")) {
+          setErreur("Vous avez déjà bénéficié d'un congé de pèlerinage (Demande validée).");
+        } else {
+          setErreur("Vous avez déjà une demande de congé de pèlerinage en cours de traitement.");
+        }
+        return;
+      }
+
+      if (nbJours > 60) {
+        setErreur("Le congé de pèlerinage est limité à 60 jours au maximum.");
+        return;
+      }
+    }
+
     if (new Date(form.date_fin) < new Date(form.date_debut)) {
       setErreur("La date de fin doit être égale ou supérieure à la date de début.");
       return;
@@ -199,11 +285,6 @@ export default function NewRequest() {
 
     if (estMaternite && nbJours > 98) {
       setErreur("Le congé de maternité est limité à 98 jours (14 semaines).");
-      return;
-    }
-
-    if (estPelerinage && nbJours > 60) {
-      setErreur("Le congé de pèlerinage est limité à 60 jours.");
       return;
     }
 
@@ -252,7 +333,6 @@ export default function NewRequest() {
         userStored?.est_rh_general === true ||
         userStored?.is_superuser === true;
 
-      // Si l'utilisateur est RH, la demande est marquée VALIDEE directement à l'envoi
       if (estRH) {
         formData.append("statut", "VALIDEE");
       }
@@ -265,7 +345,6 @@ export default function NewRequest() {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
-      // Redirection adaptée selon le rôle de l'utilisateur
       if (estRH) {
         navigate("/rh");
       } else if (roleUpper.includes("CHEF")) {
@@ -327,9 +406,14 @@ export default function NewRequest() {
                     nomAffiche = "Congé Exceptionnel / Familial";
                   }
 
+                  const codeT = String(t.code || "").toUpperCase();
+                  const libT = String(nomAffiche).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                  const estOptionHajj = String(t.id) === "2" || codeT.includes("HAJJ") || codeT.includes("PELERINAGE") || libT.includes("pelerinage") || libT.includes("hajj");
+                  const bloquerOption = estOptionHajj && pelerinageBloque;
+
                   return (
-                    <option key={t.id} value={String(t.id)}>
-                      {nomAffiche}
+                    <option key={t.id} value={String(t.id)} disabled={bloquerOption}>
+                      {nomAffiche} {bloquerOption ? " (Non disponible)" : ""}
                     </option>
                   );
                 })

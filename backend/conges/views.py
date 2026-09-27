@@ -107,6 +107,9 @@ class DemandeCongeViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(demandes, many=True)
         return Response(serializer.data)
 
+    # =========================================================================
+    # 📌 DÉBUT DE LA PARTIE MODIFIÉE : perform_create
+    # =========================================================================
     def perform_create(self, serializer):
         user = self.request.user
         role = str(getattr(user, 'role', '')).upper().strip()
@@ -125,9 +128,24 @@ class DemandeCongeViewSet(viewsets.ModelViewSet):
         # 2. Règle spéciale Congé Maladie & Contre-visite
         est_maladie = 'MALADIE' in code_type or ('maladie' in libelle_type and 'exceptionnel' not in libelle_type)
 
-        code_service = str(getattr(getattr(user, 'service', None), 'code', '') or '').upper()
-        est_du_service_rh = ('RH' in code_service or 'RESSOURCES' in code_service)
+        # ---------------------------------------------------------------------
+        # 🔍 MODIFICATION 1 : Détection robuste du service de l'utilisateur
+        # Vérifie tous les attributs possibles (service, service_details, service_nom)
+        # pour éviter qu'un utilisateur soit considéré à tort comme hors-service.
+        # ---------------------------------------------------------------------
+        service_obj = getattr(user, 'service', None)
+        service_details_obj = getattr(user, 'service_details', None)
+        code_service = str(
+            getattr(service_obj, 'code', '') or 
+            getattr(service_details_obj, 'code', '') or 
+            getattr(user, 'service_nom', '') or ''
+        ).upper().strip()
 
+        est_du_service_rh = ('RH' in code_service or 'RESSOURCES' in code_service or 'RH' in role)
+
+        # ---------------------------------------------------------------------
+        # 🔍 MODIFICATION 2 : Distinction nette entre Chef RH et Chef Standard
+        # ---------------------------------------------------------------------
         est_chef_rh = (
             getattr(user, 'est_rh_general', False)
             or user.is_superuser
@@ -135,27 +153,34 @@ class DemandeCongeViewSet(viewsets.ModelViewSet):
             or (role in ['CHEF_SERVICE', 'CHEF'] and est_du_service_rh)
         )
 
-        if est_maladie:
-            statut_depart = 'VALIDEE'
-            if nb_jours_reels > 4:
-                tag_contre_visite = "[CONTRE-VISITE MÉDICALE REQUISE]"
-                if tag_contre_visite not in motif_saisi:
-                    motif_saisi = f"{motif_saisi} {tag_contre_visite}".strip()
+        est_chef_normal = role in ['CHEF_SERVICE', 'CHEF'] and not est_chef_rh
 
-        # 3. ROUTAGE DE VALIDATION LOGIQUE MÉTIER
-        # A. Chef RH Général : Validée automatiquement d'emblée
+        if est_maladie:
+          if nb_jours_reels > 4:
+        # Maladie > 4j : reste en attente de la contre-visite
+            statut_depart = 'EN_ATTENTE_SANTE'
+            tag_contre_visite = "[CONTRE-VISITE MÉDICALE REQUISE]"
+            if tag_contre_visite not in motif_saisi:
+                motif_saisi = f"{motif_saisi} {tag_contre_visite}".strip()
+          else:
+        # Maladie <= 4j : validée d'office
+            statut_depart = 'VALIDEE'
+
+        # ---------------------------------------------------------------------
+        # 🔍 MODIFICATION 3 : Routage dynamique corrigé selon le rôle exact
+        # - Agent standard non-RH -> Va en 'EN_ATTENTE_CHEF'
+        # - Chef de service non-RH OU Agent RH -> Va en 'EN_ATTENTE_RH'
+        # - Chef RH Général -> Directement 'VALIDEE'
+        # ---------------------------------------------------------------------
+        # A. Chef RH Général / Admin : Validée d'emblée
         elif est_chef_rh:
             statut_depart = 'VALIDEE'
 
-        # B. Chef de Service Non-RH : Saute la N1 (validé auto) et passe en EN_ATTENTE_RH
-        elif role in ['CHEF_SERVICE', 'CHEF']:
+        # B. Chef de Service Non-RH OU Agent travaillant au RH : Va directement au RH Général
+        elif est_chef_normal or est_du_service_rh:
             statut_depart = 'EN_ATTENTE_RH'
 
-        # C. Agent du Service RH Simple : Son chef direct est le RH Général -> Directement EN_ATTENTE_RH
-        elif est_du_service_rh:
-            statut_depart = 'EN_ATTENTE_RH'
-
-        # D. Agent Standard : Passe en EN_ATTENTE_CHEF
+        # C. Agent Standard Hors RH : Passe obligatoirement par son Chef de Service (N1)
         else:
             statut_depart = 'EN_ATTENTE_CHEF'
 
@@ -178,6 +203,9 @@ class DemandeCongeViewSet(viewsets.ModelViewSet):
             )
             solde.jours_consommes = float(solde.jours_consommes) + float(nb_jours_reels)
             solde.save()
+    # =========================================================================
+    # 📌 FIN DE LA PARTIE MODIFIÉE
+    # =========================================================================
 
     @action(detail=True, methods=['post', 'patch', 'put'])
     def valider(self, request, pk=None):
@@ -228,8 +256,8 @@ class DemandeCongeViewSet(viewsets.ModelViewSet):
 
                 elif 'HAJJ' in code_type or 'PELERINAGE' in code_type or 'pelerinage' in libelle_type or 'hajj' in libelle_type:
                     agent = demande.utilisateur
-                    if hasattr(agent, 'a_fait_pelerinage'):
-                        agent.a_fait_pelerinage = True
+                    if hasattr(agent, 'pelerinage_utilise'):
+                        agent.pelerinage_utilise = True
                         agent.save()
 
                 demande.save()
@@ -340,8 +368,8 @@ class DemandeCongeViewSet(viewsets.ModelViewSet):
 
             if statut_valide and ('HAJJ' in code_type or 'PELERINAGE' in code_type or 'pelerinage' in libelle_type or 'hajj' in libelle_type):
                 agent = demande.utilisateur
-                if hasattr(agent, 'a_fait_pelerinage'):
-                    agent.a_fait_pelerinage = False
+                if hasattr(agent, 'pelerinage_utilise'):
+                    agent.pelerinage_utilise = False
                     agent.save()
 
             demande.statut = 'ANNULEE'

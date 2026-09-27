@@ -29,7 +29,15 @@ class Utilisateur(AbstractUser):
         if not self.matricule:
             last_user = Utilisateur.objects.order_by('-id').first()
             next_id = (last_user.id + 1) if last_user else 1
-            self.matricule = f"EMP-{next_id:05d}"
+            candidate_matricule = f"EMP-{next_id:05d}"
+            
+            # Boucle de sécurité anti-doublon (résout le problème IntegrityError)
+            while Utilisateur.objects.filter(matricule=candidate_matricule).exists():
+                next_id += 1
+                candidate_matricule = f"EMP-{next_id:05d}"
+                
+            self.matricule = candidate_matricule
+
         super().save(*args, **kwargs)
 
     def __str__(self):

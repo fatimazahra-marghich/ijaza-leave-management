@@ -150,12 +150,15 @@ export default function EmployesPage() {
   const ouvrirFormulaire = (emp = null) => {
     setErreursForm({});
     setErreurGlobale("");
+
     if (emp) {
       setEmpEnEdition(emp);
       
       const srvId = extraireId(emp.service);
-      const srv = services.find((s) => String(s.id) === String(srvId));
-      const divId = extraireId(emp.division) || (srv ? extraireId(srv.division) : "");
+      const srvTrouve = services.find((s) => String(s.id) === String(srvId));
+      const divId = extraireId(emp.division) || (srvTrouve ? extraireId(srvTrouve.division) : "");
+
+      const valSolde = parseInt(emp.solde_actuel ?? emp.solde_conge ?? 22, 10);
 
       setForm({
         email: emp.email || "",
@@ -163,9 +166,9 @@ export default function EmployesPage() {
         last_name: emp.last_name || "",
         password: "",
         role: emp.role || "EMPLOYE",
-        division_id: divId || "",
-        service_id: srvId || "",
-        solde_conge: emp.solde_actuel ?? emp.solde_conge ?? 22,
+        division_id: divId ? String(divId) : "",
+        service_id: srvId ? String(srvId) : "",
+        solde_conge: isNaN(valSolde) ? 22 : valSolde,
         is_active: emp.is_active ?? true,
       });
     } else {
@@ -212,9 +215,9 @@ export default function EmployesPage() {
       erreurs.password = "Le mot de passe est obligatoire pour la création.";
     }
 
-    const soldeNum = Number(form.solde_conge);
+    const soldeNum = parseInt(form.solde_conge, 10);
     if (isNaN(soldeNum) || soldeNum < 0) {
-      erreurs.solde_conge = "Le solde doit être un nombre positif.";
+      erreurs.solde_conge = "Le solde doit être un nombre entier positif.";
     }
 
     setErreursForm(erreurs);
@@ -231,14 +234,13 @@ export default function EmployesPage() {
 
     const emailTrimmed = form.email.trim();
 
-    // Transmission explicite des champs division et service au backend
     const payload = {
       username: emailTrimmed,
       email: emailTrimmed,
       first_name: form.first_name,
       last_name: form.last_name,
       role: form.role,
-      solde_conge: parseInt(form.solde_conge, 10),
+      solde_conge: parseInt(form.solde_conge, 10) || 0,
       is_active: form.is_active,
       division: form.division_id ? parseInt(form.division_id, 10) : null,
       service: form.service_id ? parseInt(form.service_id, 10) : null,
@@ -324,7 +326,7 @@ export default function EmployesPage() {
   const stats = useMemo(() => {
     const total = utilisateurs.length;
     const actifs = utilisateurs.filter((e) => e.is_active).length;
-    const congesTotal = utilisateurs.reduce((acc, e) => acc + (Number(e.solde_actuel ?? e.solde_conge) || 0), 0);
+    const congesTotal = utilisateurs.reduce((acc, e) => acc + (parseInt(e.solde_conge ?? e.solde_actuel, 10) || 0), 0);
 
     return { total, actifs, congesTotal };
   }, [utilisateurs]);
@@ -515,7 +517,7 @@ export default function EmployesPage() {
                             </div>
                           </td>
                           <td className="px-5 py-4 text-sm font-semibold text-neutral-700">
-                            {emp.solde_actuel ?? emp.solde_conge ?? 0} jrs
+                            {parseInt(emp.solde_conge ?? emp.solde_actuel ?? 0, 10)} jrs
                           </td>
                           <td className="px-5 py-4">
                             <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${emp.is_active ? "bg-emerald-50 text-emerald-600" : "bg-neutral-100 text-neutral-500"}`}>
@@ -675,7 +677,10 @@ export default function EmployesPage() {
                     min="0"
                     step="1"
                     value={form.solde_conge}
-                    onChange={(e) => modifierChamp("solde_conge", e.target.value)}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      modifierChamp("solde_conge", isNaN(v) ? "" : v);
+                    }}
                     className={`${champ} ${erreursForm.solde_conge ? "border-red-500 focus:ring-red-200" : ""}`}
                   />
                   {erreursForm.solde_conge && (

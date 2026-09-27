@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import api from "../../api/axios";
 import MainLayout from "../../components/MainLayout";
 
@@ -16,7 +17,7 @@ import {
 } from "recharts";
 
 /* ------------------------------------------------------------------ */
-/* Icônes SVG légères                                                  */
+/* Icônes SVG                                                          */
 /* ------------------------------------------------------------------ */
 const Icone = ({ d, className = "h-5 w-5" }) => (
   <svg
@@ -39,29 +40,24 @@ const Icone = ({ d, className = "h-5 w-5" }) => (
 
 const I = {
   personnes: "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 010 7.75",
-  horloge: "M12 8v4l2.5 2.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
   batiment: "M3 21h18M6 21V7l6-4 6 4v14M9 9h.01M15 9h.01M9 13h.01M15 13h.01M9 17h.01M15 17h.01",
   calendrier: "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z",
-  valide: "M20 6L9 17l-5-5",
-  croix: "M18 6L6 18M6 6l12 12",
+  plus: "M12 5v14M5 12h14",
+  reglage: "M12 6V4m0 16v-2m6-8h2M4 12H2m15.364 6.364l1.414 1.414M4.222 4.222l1.414 1.414m12.728 0l-1.414 1.414M5.636 18.364l-1.414 1.414",
   fleche: "M5 12h14M13 6l6 6-6 6",
-  avertissement: "M12 9v4M12 17h.01M10.3 3.9L2.4 18a2 2 0 001.7 3h15.8a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z",
 };
 
 export default function DashboardAdminPage() {
   const [kpis, setKpis] = useState({
     totalEmployes: 0,
-    demandesEnAttente: 0,
     totalDivisions: 0,
     totalServices: 0,
-    tauxAbsence: "0%",
+    totalJoursFeries: 0,
   });
 
-  const [demandes, setDemandes] = useState([]);
   const [dataEvolution, setDataEvolution] = useState([]);
-  const [dataStatuts, setDataStatuts] = useState([]);
+  const [dataDivisions, setDataDivisions] = useState([]);
   const [chargement, setChargement] = useState(true);
-  const [traitementId, setTraitementId] = useState(null);
 
   /* ============================================================
      CHARGEMENT DU DASHBOARD & CALCULS DYNAMIQUES
@@ -71,70 +67,95 @@ export default function DashboardAdminPage() {
     setChargement(true);
 
     try {
-      const [resEmp, resDiv, resSrv, resDem] = await Promise.all([
-        api.get("/users/").catch(() => api.get("/utilisateurs/")),
+      // 1. Récupération des utilisateurs
+      let resEmp = null;
+      for (const ep of ["/users/", "/users/utilisateurs/", "/utilisateurs/"]) {
+        try {
+          resEmp = await api.get(ep);
+          break;
+        } catch (e) { /* ignore */ }
+      }
+
+      // 2. Appel des routes Django selon la configuration URLconf réelle
+      const [resDiv, resSrv, resFer, resDem] = await Promise.all([
         api.get("/organisation/divisions/").catch(() => ({ data: [] })),
         api.get("/organisation/services/").catch(() => ({ data: [] })),
-        api.get("/demandes-conges/").catch(() => ({ data: [] })),
+        api.get("/jours-feries/").catch(() => ({ data: [] })),
+        api.get("/demandes/").catch(() => ({ data: [] })),
       ]);
 
-      const listEmp = Array.isArray(resEmp.data) ? resEmp.data : resEmp.data?.results ?? [];
+      const listEmp = Array.isArray(resEmp?.data) ? resEmp.data : resEmp?.data?.results ?? [];
       const listDiv = Array.isArray(resDiv.data) ? resDiv.data : resDiv.data?.results ?? [];
       const listSrv = Array.isArray(resSrv.data) ? resSrv.data : resSrv.data?.results ?? [];
+      const listFer = Array.isArray(resFer.data) ? resFer.data : resFer.data?.results ?? [];
       const listDem = Array.isArray(resDem.data) ? resDem.data : resDem.data?.results ?? [];
 
-      // Filtres des demandes par statut
-      const enAttente = listDem.filter(
-        (d) => d.statut === "EN_ATTENTE" || d.statut === "PENDING"
-      );
-      const validees = listDem.filter(
-        (d) => d.statut === "ACCORDE" || d.statut === "ACCEPTED" || d.statut === "VALIDEE"
-      );
-      const refusees = listDem.filter(
-        (d) => d.statut === "REFUSE" || d.statut === "REJECTED"
-      );
-
-      // Calcul des KPIs
+      // KPIs
       setKpis({
         totalEmployes: listEmp.length,
-        demandesEnAttente: enAttente.length,
         totalDivisions: listDiv.length,
         totalServices: listSrv.length,
-        tauxAbsence: listEmp.length > 0 ? `${((validees.length / listEmp.length) * 100).toFixed(1)}%` : "0%",
+        totalJoursFeries: listFer.length,
       });
 
-      // Construction dynamique de la répartition par statut
-      setDataStatuts([
-        { statut: "Validées", nombre: validees.length, couleur: "#10b981" },
-        { statut: "En attente", nombre: enAttente.length, couleur: "#f59e0b" },
-        { statut: "Refusées", nombre: refusees.length, couleur: "#f43f5e" },
-      ]);
+      // 📊 Diagramme 1 : Répartition par Division
+      const couleurs = ["#3c0038", "#0097ff", "#93003f", "#10b981", "#f59e0b", "#8b5cf6"];
+      
+      const repartition = listDiv.map((div, idx) => {
+        let totalAgentsDivision = 0;
 
-      // Dynamic aggregation par mois (sur les 6 derniers mois)
+        if (Array.isArray(div.services)) {
+          totalAgentsDivision = div.services.reduce((acc, srv) => {
+            return acc + (srv.nombre_agents || 0);
+          }, 0);
+        }
+
+        return {
+          nom: div.nom || div.code || `Division ${div.id}`,
+          nombre: totalAgentsDivision,
+          couleur: couleurs[idx % couleurs.length],
+        };
+      });
+
+      setDataDivisions(repartition);
+
+      // 📈 Diagramme 2 : Évolution dynamique des absences
       const moisNoms = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc"];
       const statsMois = {};
-
       const auj = new Date();
+
+      // Initialisation par défaut des 6 derniers mois
       for (let i = 5; i >= 0; i--) {
         const d = new Date(auj.getFullYear(), auj.getMonth() - i, 1);
         const cle = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-        statsMois[cle] = { mois: moisNoms[d.getMonth()], demandes: 0, validees: 0 };
+        statsMois[cle] = { mois: `${moisNoms[d.getMonth()]}`, demandes: 0 };
       }
 
+      // Extraction sans décalage de fuseau horaire
       listDem.forEach((d) => {
-        const dateRef = d.date_debut || d.created_at;
-        if (!dateRef) return;
-        const cle = dateRef.slice(0, 7);
-        if (statsMois[cle]) {
-          statsMois[cle].demandes += 1;
-          if (["ACCORDE", "ACCEPTED", "VALIDEE"].includes(d.statut)) {
-            statsMois[cle].validees += 1;
+        const rawDate = d.date_debut || d.created_at;
+        if (!rawDate) return;
+
+        const match = String(rawDate).match(/^(\d{4})-(\d{2})/);
+        if (match) {
+          const annee = match[1];
+          const moisIdx = parseInt(match[2], 10) - 1;
+          const cle = `${annee}-${match[2]}`;
+
+          if (!statsMois[cle]) {
+            statsMois[cle] = { mois: `${moisNoms[moisIdx]}`, demandes: 0 };
           }
+          statsMois[cle].demandes += 1;
         }
       });
 
-      setDataEvolution(Object.values(statsMois));
-      setDemandes(enAttente.slice(0, 5));
+      // Tri chronologique des 6 derniers mois
+      const resultatsTries = Object.keys(statsMois)
+        .sort()
+        .slice(-6)
+        .map((key) => statsMois[key]);
+
+      setDataEvolution(resultatsTries);
     } catch (err) {
       console.error("Erreur de chargement du dashboard :", err);
     } finally {
@@ -145,23 +166,6 @@ export default function DashboardAdminPage() {
   useEffect(() => {
     chargerDashboard();
   }, []);
-
-  /* ============================================================
-     TRAITER UNE DEMANDE
-  ============================================================ */
-
-  async function traiterDemande(id, statut) {
-    setTraitementId(id);
-    try {
-      await api.patch(`/demandes-conges/${id}/`, { statut });
-      await chargerDashboard();
-    } catch (err) {
-      console.error("Erreur lors du traitement de la demande :", err);
-      alert("Impossible de mettre à jour le statut de la demande.");
-    } finally {
-      setTraitementId(null);
-    }
-  }
 
   /* ============================================================
      AFFICHAGE
@@ -176,24 +180,24 @@ export default function DashboardAdminPage() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-[#3c0038] sm:text-3xl">
-                Tableau de bord Administrateur
+                Administration & Organisation
               </h1>
               <p className="mt-1 text-sm text-neutral-500">
-                Vue globale sur les effectifs, la structure organisationnelle et le suivi des congés
+                Gestion de l'effectif, de la structure organisationnelle et des paramètres globaux
               </p>
             </div>
             <button
               onClick={chargerDashboard}
               className="inline-flex items-center gap-2 self-start rounded-xl border border-white/80 bg-white/80 px-4 py-2 text-xs font-semibold text-[#3c0038] shadow-sm backdrop-blur transition hover:bg-white"
             >
-              Actualiser les données
+              Actualiser
             </button>
           </div>
 
           {chargement ? (
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#3c0038] border-t-transparent" />
-              <p className="mt-4 text-sm font-semibold text-[#3c0038]">Chargement des indicateurs...</p>
+              <p className="mt-4 text-sm font-semibold text-[#3c0038]">Chargement de la configuration...</p>
             </div>
           ) : (
             <div className="space-y-8">
@@ -201,11 +205,11 @@ export default function DashboardAdminPage() {
               {/* Cartes KPI */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 
-                {/* KPI 1 : Effectif */}
+                {/* KPI 1 : Employés */}
                 <div className="rounded-2xl border border-white/70 bg-white/80 p-5 shadow-sm backdrop-blur">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold uppercase tracking-wider text-neutral-400">
-                      Effectif Total
+                      Total Employés
                     </span>
                     <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#3c0038]/10 text-[#3c0038]">
                       <Icone d={I.personnes} />
@@ -221,37 +225,11 @@ export default function DashboardAdminPage() {
                   </div>
                 </div>
 
-                {/* KPI 2 : Demandes en attente */}
+                {/* KPI 2 : Divisions */}
                 <div className="rounded-2xl border border-white/70 bg-white/80 p-5 shadow-sm backdrop-blur">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold uppercase tracking-wider text-neutral-400">
-                      Demandes en attente
-                    </span>
-                    <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#93003f]/10 text-[#93003f]">
-                      <Icone d={I.horloge} />
-                    </div>
-                  </div>
-                  <div className="mt-3 flex items-baseline justify-between">
-                    <span className="text-3xl font-extrabold text-[#93003f]">
-                      {kpis.demandesEnAttente}
-                    </span>
-                    {kpis.demandesEnAttente > 0 ? (
-                      <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-600">
-                        Action requise
-                      </span>
-                    ) : (
-                      <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-600">
-                        À jour
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* KPI 3 : Divisions & Services */}
-                <div className="rounded-2xl border border-white/70 bg-white/80 p-5 shadow-sm backdrop-blur">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold uppercase tracking-wider text-neutral-400">
-                      Divisions / Services
+                      Divisions
                     </span>
                     <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#0097ff]/10 text-[#0097ff]">
                       <Icone d={I.batiment} />
@@ -259,47 +237,123 @@ export default function DashboardAdminPage() {
                   </div>
                   <div className="mt-3 flex items-baseline justify-between">
                     <span className="text-3xl font-extrabold text-[#3c0038]">
-                      {kpis.totalDivisions} <span className="text-lg font-normal text-neutral-400">/ {kpis.totalServices}</span>
+                      {kpis.totalDivisions}
                     </span>
                     <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-[#0097ff]">
-                      Structure
+                      Unités
                     </span>
                   </div>
                 </div>
 
-                {/* KPI 4 : Taux d'absence */}
+                {/* KPI 3 : Services */}
                 <div className="rounded-2xl border border-white/70 bg-white/80 p-5 shadow-sm backdrop-blur">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold uppercase tracking-wider text-neutral-400">
-                      Taux d'absence
+                      Services
                     </span>
                     <div className="grid h-10 w-10 place-items-center rounded-xl bg-purple-100 text-purple-700">
-                      <Icone d={I.calendrier} />
+                      <Icone d={I.batiment} />
                     </div>
                   </div>
                   <div className="mt-3 flex items-baseline justify-between">
                     <span className="text-3xl font-extrabold text-[#3c0038]">
-                      {kpis.tauxAbsence}
+                      {kpis.totalServices}
                     </span>
-                    <span className="rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs font-semibold text-neutral-600">
-                      Estimation
+                    <span className="rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-semibold text-purple-600">
+                      Sous-unités
+                    </span>
+                  </div>
+                </div>
+
+                {/* KPI 4 : Jours Fériés */}
+                <div className="rounded-2xl border border-white/70 bg-white/80 p-5 shadow-sm backdrop-blur">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold uppercase tracking-wider text-neutral-400">
+                      Jours Fériés
+                    </span>
+                    <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#93003f]/10 text-[#93003f]">
+                      <Icone d={I.calendrier} />
+                    </div>
+                  </div>
+                  <div className="mt-3 flex items-baseline justify-between">
+                    <span className="text-3xl font-extrabold text-[#93003f]">
+                      {kpis.totalJoursFeries}
+                    </span>
+                    <span className="rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-semibold text-[#93003f]">
+                      Configurés
                     </span>
                   </div>
                 </div>
 
               </div>
 
+              {/* Raccourcis de Gestion */}
+              <div className="rounded-2xl border border-white/70 bg-white/90 p-6 shadow-sm backdrop-blur">
+                <h2 className="text-base font-bold text-[#3c0038] mb-4">
+                  Actions de Configuration Rapide
+                </h2>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <Link
+                    to="/admin/employes"
+                    className="flex items-center justify-between rounded-xl border border-neutral-200/80 bg-white p-4 transition hover:border-[#3c0038] hover:shadow-md"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="grid h-9 w-9 place-items-center rounded-lg bg-[#3c0038]/10 text-[#3c0038]">
+                        <Icone d={I.plus} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-[#3c0038]">Gestion des employés</p>
+                        <p className="text-xs text-neutral-500">Ajout & mise à jour</p>
+                      </div>
+                    </div>
+                    <Icone d={I.fleche} className="h-4 w-4 text-neutral-400" />
+                  </Link>
+
+                  <Link
+                    to="/admin/structure"
+                    className="flex items-center justify-between rounded-xl border border-neutral-200/80 bg-white p-4 transition hover:border-[#0097ff] hover:shadow-md"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="grid h-9 w-9 place-items-center rounded-lg bg-[#0097ff]/10 text-[#0097ff]">
+                        <Icone d={I.batiment} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-[#3c0038]">Structure Organique</p>
+                        <p className="text-xs text-neutral-500">Divisions & Services</p>
+                      </div>
+                    </div>
+                    <Icone d={I.fleche} className="h-4 w-4 text-neutral-400" />
+                  </Link>
+
+                  <Link
+                    to="/admin/jours-feries"
+                    className="flex items-center justify-between rounded-xl border border-neutral-200/80 bg-white p-4 transition hover:border-[#93003f] hover:shadow-md"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="grid h-9 w-9 place-items-center rounded-lg bg-[#93003f]/10 text-[#93003f]">
+                        <Icone d={I.reglage} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-[#3c0038]">Jours Fériés</p>
+                        <p className="text-xs text-neutral-500">Calendrier des congés</p>
+                      </div>
+                    </div>
+                    <Icone d={I.fleche} className="h-4 w-4 text-neutral-400" />
+                  </Link>
+                </div>
+              </div>
+
               {/* Graphiques */}
               <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
 
-                {/* Graphique Évolution */}
+                {/* Graphique 1 : Évolution des demandes */}
                 <div className="rounded-2xl border border-white/70 bg-white/90 p-6 shadow-sm backdrop-blur lg:col-span-2">
                   <div className="mb-6">
                     <h2 className="text-base font-bold text-[#3c0038]">
-                      Évolution des demandes de congés
+                      Volume global des absences
                     </h2>
                     <p className="text-xs text-neutral-500">
-                      Comparaison sur les 6 derniers mois du volume total et des demandes validées
+                      Évolution du nombre total de demandes déposées par mois
                     </p>
                   </div>
 
@@ -308,49 +362,43 @@ export default function DashboardAdminPage() {
                       <AreaChart data={dataEvolution} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                         <defs>
                           <linearGradient id="colorDemandes" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#93003f" stopOpacity={0.3} />
-                            <stop offset="95%" stopColor="#93003f" stopOpacity={0} />
-                          </linearGradient>
-                          <linearGradient id="colorValidees" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#0097ff" stopOpacity={0.3} />
-                            <stop offset="95%" stopColor="#0097ff" stopOpacity={0} />
+                            <stop offset="5%" stopColor="#3c0038" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="#3c0038" stopOpacity={0} />
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                         <XAxis dataKey="mois" axisLine={false} tickLine={false} tick={{ fill: "#94a3b8", fontSize: 12 }} />
-                        <YAxis axisLine={false} tickLine={false} tick={{ fill: "#94a3b8", fontSize: 12 }} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fill: "#94a3b8", fontSize: 12 }} allowDecimals={false} />
                         <Tooltip
                           contentStyle={{
                             backgroundColor: "#fff",
                             borderRadius: "12px",
                             border: "1px solid #e2e8f0",
-                            boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)",
                           }}
                         />
-                        <Area type="monotone" dataKey="demandes" stroke="#93003f" strokeWidth={2.5} fillOpacity={1} fill="url(#colorDemandes)" name="Total Demandes" />
-                        <Area type="monotone" dataKey="validees" stroke="#0097ff" strokeWidth={2.5} fillOpacity={1} fill="url(#colorValidees)" name="Validées" />
+                        <Area type="monotone" dataKey="demandes" stroke="#3c0038" strokeWidth={2.5} fillOpacity={1} fill="url(#colorDemandes)" name="Total Demandes" />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
 
-                {/* Graphique Statuts */}
+                {/* Graphique 2 : Répartition par Division */}
                 <div className="rounded-2xl border border-white/70 bg-white/90 p-6 shadow-sm backdrop-blur">
                   <div className="mb-6">
                     <h2 className="text-base font-bold text-[#3c0038]">
-                      Répartition des statuts
+                      Répartition par Division
                     </h2>
                     <p className="text-xs text-neutral-500">
-                      État global de l'ensemble des demandes
+                      Nombre d'employés affectés par entité
                     </p>
                   </div>
 
                   <div className="h-72 w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={dataStatuts} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <BarChart data={dataDivisions} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis dataKey="statut" axisLine={false} tickLine={false} tick={{ fill: "#94a3b8", fontSize: 12 }} />
-                        <YAxis axisLine={false} tickLine={false} tick={{ fill: "#94a3b8", fontSize: 12 }} />
+                        <XAxis dataKey="nom" axisLine={false} tickLine={false} tick={{ fill: "#94a3b8", fontSize: 11 }} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fill: "#94a3b8", fontSize: 12 }} allowDecimals={false} />
                         <Tooltip
                           cursor={{ fill: "transparent" }}
                           contentStyle={{
@@ -359,8 +407,8 @@ export default function DashboardAdminPage() {
                             border: "1px solid #e2e8f0",
                           }}
                         />
-                        <Bar dataKey="nombre" radius={[8, 8, 0, 0]}>
-                          {dataStatuts.map((entry, index) => (
+                        <Bar dataKey="nombre" radius={[8, 8, 0, 0]} name="Employés">
+                          {dataDivisions.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={entry.couleur} />
                           ))}
                         </Bar>
@@ -369,78 +417,6 @@ export default function DashboardAdminPage() {
                   </div>
                 </div>
 
-              </div>
-
-              {/* Tableau des demandes à valider */}
-              <div className="overflow-hidden rounded-2xl border border-white/70 bg-white/90 shadow-sm backdrop-blur">
-                <div className="border-b border-neutral-100 p-6">
-                  <h2 className="text-lg font-bold text-[#3c0038]">
-                    Dernières demandes en attente de validation
-                  </h2>
-                  <p className="text-xs text-neutral-500">
-                    Traitez directement les demandes nécessitant l'accord de la direction
-                  </p>
-                </div>
-
-                {demandes.length === 0 ? (
-                  <div className="py-12 text-center">
-                    <p className="text-sm font-medium text-neutral-400">
-                      Aucune demande en attente pour le moment.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead className="border-b border-neutral-100 bg-neutral-50/50 font-semibold text-neutral-500">
-                        <tr>
-                          <th className="p-4 pl-6">Employé</th>
-                          <th className="p-4">Type de congé</th>
-                          <th className="p-4">Période</th>
-                          <th className="p-4 text-right pr-6">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-neutral-100">
-                        {demandes.map((d) => (
-                          <tr key={d.id} className="transition hover:bg-[#e7ffff]/30">
-                            <td className="p-4 pl-6 font-semibold text-[#3c0038]">
-                              {d.employe_nom ||
-                                d.employe?.first_name ? `${d.employe.first_name} ${d.employe.last_name || ""}` :
-                                "Employé"}
-                            </td>
-                            <td className="p-4 text-neutral-600">
-                              <span className="inline-flex rounded-full bg-[#0097ff]/10 px-2.5 py-1 text-xs font-semibold text-[#0097ff]">
-                                {d.type_conge || "Congé Payé"}
-                              </span>
-                            </td>
-                            <td className="p-4 text-xs font-medium text-neutral-500">
-                              {d.date_debut} au {d.date_fin}
-                            </td>
-                            <td className="p-4 pr-6 text-right">
-                              <div className="flex justify-end gap-2">
-                                <button
-                                  disabled={traitementId === d.id}
-                                  onClick={() => traiterDemande(d.id, "ACCORDE")}
-                                  className="inline-flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
-                                >
-                                  <Icone d={I.valide} className="h-3.5 w-3.5" />
-                                  Valider
-                                </button>
-                                <button
-                                  disabled={traitementId === d.id}
-                                  onClick={() => traiterDemande(d.id, "REFUSE")}
-                                  className="inline-flex items-center gap-1 rounded-xl bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-rose-700 disabled:opacity-50"
-                                >
-                                  <Icone d={I.croix} className="h-3.5 w-3.5" />
-                                  Refuser
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
               </div>
 
             </div>

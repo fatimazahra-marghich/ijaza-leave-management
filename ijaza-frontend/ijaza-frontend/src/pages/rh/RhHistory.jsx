@@ -128,11 +128,6 @@ export default function RhHistory() {
       const u = d.utilisateur_details || d.utilisateur || {};
       const agentNom = nomComplet(d).trim().toLowerCase();
 
-      // Suppression automatique de l'agent test test
-      if (agentNom === "test test" || agentNom === "test") {
-        return false;
-      }
-
       const srvId = String(
         u?.service?.id ?? u?.service ?? u?.service_details?.id ?? d?.service?.id ?? d?.service ?? ""
       );
@@ -192,7 +187,7 @@ export default function RhHistory() {
           </p>
         </header>
 
-        {/* Cartes KPI - Style inspiré de l'image */}
+        {/* Cartes KPI */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div className="rounded-2xl border border-cyan-200 bg-cyan-50/30 p-5 transition hover:shadow-md">
             <span className="text-[11px] font-extrabold uppercase tracking-wider text-cyan-600">
@@ -284,7 +279,7 @@ export default function RhHistory() {
           </div>
         </div>
 
-        {/* Tableau récapitulatif avec le design moderne (En-tête Cyan clair, Pill Durée, design doux) */}
+        {/* Tableau récapitulatif */}
         <div className="overflow-hidden rounded-2xl border border-cyan-100 bg-white shadow-sm">
           <table className="w-full text-left text-xs">
             <thead className="bg-cyan-50/60 text-[11px] font-extrabold uppercase tracking-wider text-cyan-800 border-b border-cyan-100">
@@ -339,7 +334,7 @@ export default function RhHistory() {
                         <div className="text-[11px] text-slate-400">→ {d.date_fin}</div>
                       </td>
 
-                      {/* Durée (Badge pilule cyan inspiré de l'image) */}
+                      {/* Durée */}
                       <td className="p-4 text-center">
                         <span className="inline-block rounded-full bg-cyan-50 px-3 py-1 text-xs font-black text-cyan-800 border border-cyan-100">
                           {d.nombre_jours}j

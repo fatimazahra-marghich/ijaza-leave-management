@@ -12,6 +12,9 @@ class UtilisateurSerializer(serializers.ModelSerializer):
     # Champ d'écriture optionnel pour recevoir le solde de congé envoyé par React
     solde_conge = serializers.FloatField(write_only=True, required=False, default=22.0)
     
+    # Champ virtuel d'écriture optionnel pour capturer la division envoyée par React
+    division = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+
     # Champs calculés pour le frontend React (Lecture)
     solde_actuel = serializers.SerializerMethodField()
     service_nom = serializers.SerializerMethodField()
@@ -23,7 +26,8 @@ class UtilisateurSerializer(serializers.ModelSerializer):
             'id', 'username', 'email', 'first_name', 'last_name', 
             'nom_complet', 'matricule', 'role', 'poste', 'password',
             'service', 'service_details', 'pelerinage_utilise',
-            'solde_conge', 'solde_actuel', 'service_nom', 'division_nom', 'is_active'
+            'solde_conge', 'division', 'solde_actuel', 'service_nom', 
+            'division_nom', 'is_active'
         ]
         extra_kwargs = {
             'password': {'write_only': True, 'required': False},
@@ -50,19 +54,23 @@ class UtilisateurSerializer(serializers.ModelSerializer):
         return '-'
 
     def create(self, validated_data):
+        # 1. On extrait les champs virtuels hors du modèle Utilisateur
         password = validated_data.pop('password', None)
         solde_initial = validated_data.pop('solde_conge', 22.0)
+        validated_data.pop('division', None)  # Retiré car non géré en champ direct sur Utilisateur
         
         if not validated_data.get('username') and validated_data.get('email'):
             validated_data['username'] = validated_data['email'].split('@')[0]
 
+        # 2. Création de l'utilisateur nettoyé
         utilisateur = super().create(validated_data)
 
+        # 3. Application du mot de passe
         if password:
             utilisateur.set_password(password)
             utilisateur.save()
 
-        # Création automatique du solde pour l'année en cours
+        # 4. Création/Mise à jour du solde de congé pour l'année en cours
         annee_courante = date.today().year
         SoldeConge.objects.update_or_create(
             utilisateur=utilisateur,
@@ -73,8 +81,10 @@ class UtilisateurSerializer(serializers.ModelSerializer):
         return utilisateur
 
     def update(self, instance, validated_data):
+        # On extrait les champs non-modèle
         password = validated_data.pop('password', None)
         solde_saisi = validated_data.pop('solde_conge', None)
+        validated_data.pop('division', None)
         
         utilisateur = super().update(instance, validated_data)
 
@@ -82,7 +92,6 @@ class UtilisateurSerializer(serializers.ModelSerializer):
             utilisateur.set_password(password)
             utilisateur.save()
 
-        # Mise à jour synchronisée du solde si fourni
         if solde_saisi is not None:
             annee_courante = date.today().year
             solde, _ = SoldeConge.objects.get_or_create(

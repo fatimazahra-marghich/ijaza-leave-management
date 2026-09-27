@@ -283,11 +283,7 @@ export default function DashboardRH() {
     });
   }, [demandes, divisionFiltre, serviceFiltre, typeCongeFiltre, recherche, services]);
 
-  // Mes demandes RH (Affiche les demandes en attente ET validées de l'utilisateur connecté)
-// Mes demandes RH (Affiche toutes les demandes de l'utilisateur connecté)
-// Mes demandes RH (Extraction stricte de l'ID avec comparaison tolérante)
-// Mes demandes RH (Filtre intelligent par ID, Username ou Nom complet)
-// Mes demandes RH (Ne conserve que les demandes actives : En attente ou Validées)
+  // Mes demandes RH
   const mesDemandes = useMemo(() => {
     if (!currentUser || !demandes || demandes.length === 0) return [];
 
@@ -296,7 +292,6 @@ export default function DashboardRH() {
     const myName = String(currentUser.nom_complet || currentUser.first_name || "").toLowerCase().trim();
 
     return demandes.filter((d) => {
-      // Exclusion stricte des demandes annulées ou refusées
       const st = String(d?.statut || d?.statut_code || "").toUpperCase();
       if (st.includes("ANNUL") || st.includes("REFUS")) {
         return false;
@@ -304,20 +299,17 @@ export default function DashboardRH() {
 
       const u = d?.utilisateur_details || d?.utilisateur || {};
 
-      // Extraction de l'ID utilisateur
       const idUser = String(
         d?.utilisateur_id ||
         (typeof u === "object" ? u.id || u.pk : u) ||
         ""
       ).trim();
 
-      // Extraction du username/nom
       const usernameUser = String(u.username || u.email || "").toLowerCase().trim();
       const nameUser = String(
         d?.utilisateur_nom || u.nom_complet || `${u.first_name || ""} ${u.last_name || ""}`
       ).toLowerCase().trim();
 
-      // Correspondance par ID OU par Nom/Username
       const matchId = myId && idUser === myId;
       const matchUsername = myUsername && usernameUser === myUsername;
       const matchName = myName && nameUser && (nameUser.includes(myName) || myName.includes(nameUser));
@@ -336,7 +328,7 @@ export default function DashboardRH() {
     };
   }, [demandesAValider, demandesMaladie, divisions, services]);
 
-  // Répartition dynamique selon les filtres (Division, Service, Type, Recherche)
+  // Répartition dynamique selon les filtres
   const repartitionMotifs = useMemo(() => {
     if (!Array.isArray(demandes)) return [];
 
@@ -662,12 +654,15 @@ export default function DashboardRH() {
               </div>
             )}
 
-            {/* Congés Maladie */}
+            {/* Congés Maladie (Mise à jour spécifique) */}
             {ongletActif === "maladie" && (
               <div className="space-y-3">
                 {demandesMaladie.map((d) => {
                   const estLongueDuree = d.necessite_contre_visite || Number(d?.nombre_jours) > 4;
+                  const st = String(d?.statut || "").toUpperCase();
+                  const estEnAttente = ["EN_ATTENTE_SANTE", "EN_ATTENTE_RH", "EN_ATTENTE_CHEF", "EN_ATTENTE"].includes(st);
                   const divInfo = extraireDivisionInfo(d, divisions);
+
                   return (
                     <div
                       key={d.id}
@@ -680,26 +675,50 @@ export default function DashboardRH() {
                             🏢 {divInfo.nom}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-slate-500 mt-1">
                           Période : {d.date_debut} au {d.date_fin} ({d.nombre_jours} jours)
                         </p>
+                        {d.motif && (
+                          <p className="text-xs italic text-slate-400 mt-0.5">
+                            Motif : "{d.motif}"
+                          </p>
+                        )}
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2">
                         <StatutBadge statut={d.statut} />
 
                         {estLongueDuree && (
-                          <div className="flex items-center gap-2">
-                            <span className="rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-[11px] font-bold text-amber-800">
-                              ⚠️ Contre-visite requise (&gt; 4j)
-                            </span>
+                          <span className="rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-[11px] font-bold text-amber-800">
+                            ⚠️ Contre-visite requise (&gt; 4j)
+                          </span>
+                        )}
+
+                        {/* Boutons d'action RH pour validation/refus après contre-visite */}
+                        {estEnAttente ? (
+                          <div className="flex items-center gap-2 ml-2">
+                            <button
+                              onClick={() => setDemandeRefus(d)}
+                              className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100"
+                            >
+                              Refuser (Avis défavorable)
+                            </button>
+                            <button
+                              onClick={() => traiterAction(d.id, "VALIDE")}
+                              className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-emerald-700"
+                            >
+                              Valider (Avis favorable)
+                            </button>
+                          </div>
+                        ) : (
+                          estLongueDuree && (
                             <button
                               onClick={() => traiterAction(d.id, "CONTRE_VISITE")}
                               className="rounded-xl bg-amber-600 px-3 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-amber-700"
                             >
                               Ordonner Contre-Visite
                             </button>
-                          </div>
+                          )
                         )}
                       </div>
                     </div>
@@ -714,8 +733,7 @@ export default function DashboardRH() {
               </div>
             )}
 
-            {/* Mes Demandes RH (Affiche EN_ATTENTE_RH et VALIDEE) */}
-{/* Mes Demandes RH (Affiche toutes les demandes avec option d'annulation) */}
+            {/* Mes Demandes RH */}
             {ongletActif === "mes_demandes" && (
               <div className="space-y-4">
                 {mesDemandes.map((d) => {
@@ -752,7 +770,6 @@ export default function DashboardRH() {
                         )}
                       </div>
 
-                      {/* Bouton Annuler visible pour les demandes en attente ou validées */}
                       {!estAnnuleeOuRefusee && (
                         <button
                           onClick={() => {
