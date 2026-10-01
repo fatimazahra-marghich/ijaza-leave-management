@@ -27,6 +27,7 @@ L'application repose sur un contrôle d'accès basé sur les rôles (RBAC) avec 
 ## ⚙️ Installation Rapide
 
 ### Backend
+
 ```bash
 cd backend
 python -m venv venv
@@ -35,12 +36,12 @@ pip install -r requirements.txt
 cp .env.example .env      # Configurer vos identifiants PostgreSQL
 python manage.py migrate
 python manage.py runserver
-
-
----
+```
 
 ### Frontend
-# ```bash 
+
+```bash
 cd ijaza-frontend/ijaza-frontend
 npm install
 npm run dev               # ou npm start
+```
