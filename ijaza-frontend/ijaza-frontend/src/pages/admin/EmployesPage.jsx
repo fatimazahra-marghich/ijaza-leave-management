@@ -211,8 +211,19 @@ export default function EmployesPage() {
       }
     }
 
+    // Validation de la complexité du mot de passe
     if (!empEnEdition && !form.password) {
       erreurs.password = "Le mot de passe est obligatoire pour la création.";
+    } else if (form.password) {
+      const minLength = form.password.length >= 8;
+      const hasUpper = /[A-Z]/.test(form.password);
+      const hasLower = /[a-z]/.test(form.password);
+      const hasNumber = /[0-9]/.test(form.password);
+      const hasSpecial = /[@$!%*?&_\-#.]/.test(form.password);
+
+      if (!minLength || !hasUpper || !hasLower || !hasNumber || !hasSpecial) {
+        erreurs.password = "Le mot de passe doit contenir au moins 8 caractères, une majuscule, une minuscule, un chiffre et un caractère spécial (@$!%*?&_#-.).";
+      }
     }
 
     const soldeNum = parseInt(form.solde_conge, 10);
@@ -565,7 +576,7 @@ export default function EmployesPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-5 p-6">
+            <form onSubmit={handleSubmit} className="space-y-5 p-6" noValidate>
               {erreurGlobale && (
                 <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-600">
                   {erreurGlobale}
@@ -618,8 +629,10 @@ export default function EmployesPage() {
                       onChange={(e) => modifierChamp("password", e.target.value)}
                       className={`${champ} ${erreursForm.password ? "border-red-500 focus:ring-red-200" : ""}`}
                       placeholder="••••••••"
-                      required={!empEnEdition}
                     />
+                    <p className="mt-1 text-[11px] text-neutral-400">
+                      Minimum 8 caractères, 1 majuscule, 1 minuscule, 1 chiffre, 1 caractère spécial.
+                    </p>
                     {erreursForm.password && (
                       <p className="mt-1 text-xs font-medium text-red-500">{erreursForm.password}</p>
                     )}
