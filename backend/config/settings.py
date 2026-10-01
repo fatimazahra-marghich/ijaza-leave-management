@@ -9,14 +9,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 
-# Quick-start development settings - unsuitable for production
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
+# 1. Clé secrète obligatoire (lève une erreur claire si absente du .env)
+SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 
-# SECURITY WARNING: don't run with debug turned on in production!
+# 2. Mode Debug basé uniquement sur DJANGO_DEBUG (conforme au .env.example)
 DEBUG = os.environ.get("DJANGO_DEBUG", "False") == "True"
 
-ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split(",")
+# 3. ALLOWED_HOSTS nettoyé avec .strip() pour éviter les erreurs d'espaces
+ALLOWED_HOSTS = [h.strip() for h in os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")]
 
 
 # Application definition
@@ -34,7 +34,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
 
-    # Vos applications
+    # Apps locales
     'users',
     'organisation',
     'conges',
@@ -47,6 +47,7 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
+    # CsrfViewMiddleware désactivé intentionnellement : l'API utilise une authentification Stateless par jetons JWT
     # 'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -73,13 +74,13 @@ TEMPLATES = [
 WSGI_APPLICATION = 'config.wsgi.application'
 
 
-# Database configuration dynamique via le fichier .env
+# Database configuration dynamique via .env (DB_PASSWORD est maintenant obligatoire)
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': os.environ.get("DB_NAME", "gestion_conges"),
         'USER': os.environ.get("DB_USER", "postgres"),
-        'PASSWORD': os.environ.get("DB_PASSWORD", ""),
+        'PASSWORD': os.environ["DB_PASSWORD"],
         'HOST': os.environ.get("DB_HOST", "localhost"),
         'PORT': os.environ.get("DB_PORT", "5432"),
     }
@@ -112,29 +113,32 @@ USE_I18N = True
 
 USE_TZ = True
 
+# Type de clé primaire par défaut (évite les avertissements W042)
+DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
 
-# Static files (CSS, JavaScript, Images)
-STATIC_URL = 'static/'
 
-# Media files
-MEDIA_URL = '/'
-MEDIA_ROOT = BASE_DIR
+# Static & Media files
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 
 # Custom User Model
 AUTH_USER_MODEL = 'users.Utilisateur'
 
 
-# Email
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
-    },
-}
+# Configuration Email pour le développement
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 
-# CORS & Security
-CORS_ALLOW_ALL_ORIGINS = True
+# Configuration CORS explicite pour React/Vite
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:3000',
+]
 
 CSRF_TRUSTED_ORIGINS = [
     'http://localhost:5173',
@@ -142,7 +146,7 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 
-# Configuration de Django Rest Framework & JWT
+# Rest Framework & JWT
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',

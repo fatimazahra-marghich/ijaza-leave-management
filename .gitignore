@@ -13,11 +13,19 @@ __pycache__/
 *.py[cod]
 *.sqlite3
 
-# Env & OS (Secrets et fichiers indésirables)
+# Fichiers générés
+media/
+staticfiles/
+backend/justificatifs/
+
+# Secrets & Environnement
 .env
-*.env
+.env.*
+!.env.example
+
+# OS / Windows / IDE
 *.lnk
 .DS_Store
 Thumbs.db
-# justification (documents)
-backend/justificatifs/
+.vscode/
+.idea/
