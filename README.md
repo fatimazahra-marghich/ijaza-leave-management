@@ -35,3 +35,12 @@ pip install -r requirements.txt
 cp .env.example .env      # Configurer vos identifiants PostgreSQL
 python manage.py migrate
 python manage.py runserver
+
+
+---
+
+### Frontend
+# ```bash 
+cd ijaza-frontend/ijaza-frontend
+npm install
+npm run dev               # ou npm start
